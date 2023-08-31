@@ -2,6 +2,9 @@ from MathBasic import *
 from ui import *
 import colorsys
 from random import randint
+import numpy as np
+
+sampleRate = 44100
 
 
 class Device:
@@ -18,6 +21,8 @@ class Device:
         self.ui = []
         self.switch = None
 
+        self.data = np.zeros(44100)
+
         Device.all_devices.append(self)
 
     def focus(self):
@@ -26,8 +31,8 @@ class Device:
     def unfocus(self):
         pass
 
-    def transform(self):
-        pass
+    def process(self):
+        return self.inputs[0].process()
 
     def delete(self):
         Device.all_devices.remove(self)
@@ -54,8 +59,48 @@ class Adder(Device):
 
         super().__init__(2, 1, Vector2(2, 2))
 
-    def transform(self):
-        pass
+    def process(self):
+        return self.inputs[0].process() + self.inputs[1].process()
+
+
+class Amp(Device):
+    def __init__(self, position):
+        self.position = position
+
+        self.ui = [NumberEdit("Amplitude", 1)]
+
+        super().__init__(1, 1, Vector2(2, 2))
+
+    def process(self):
+        return self.ui[0].value * self.inputs[0].process()
+
+
+class Attack(Device):
+    def __init__(self, position):
+        self.position = position
+        super().__init__(1, 1, Vector2(2, 2))
+
+        self.ui = [NumberEdit("Attack Time", 0.1)]
+
+    def process(self):
+        data = self.inputs[0].process()
+        space = np.ones(len(data) - int(sampleRate * self.ui[0].value))
+        attack = np.linspace(0, 1, int(sampleRate * self.ui[0].value))
+        return np.append(attack, space) * data
+
+
+class Decay(Device):
+    def __init__(self, position):
+        self.position = position
+        super().__init__(1, 1, Vector2(2, 2))
+
+        self.ui = [NumberEdit("Decay Time", 0.3)]
+
+    def process(self):
+        data = self.inputs[0].process()
+        samples = np.linspace(0, 1, len(data))
+        decay = np.exp(-samples / self.ui[0].value)
+        return decay * data
 
 
 class Sequencer(Device):
@@ -67,18 +112,34 @@ class Sequencer(Device):
 
         super().__init__(1, 1, Vector2(2, 2))
 
+    def process(self):
+        data = self.inputs[0].process()
+        return sum(data if self.sequence[i] else data * 0 for i in range(len(self.sequence)))
+
+
+class Beatbox(Device):
+    def __init__(self, position):
+        self.position = position
+        super().__init__(1, 1, Vector2(3, 3))
+
+        self.ui = [Button("Edit...", None)]
+
+    def process(self):
+        pass
+
 
 class Oscillator(Device):
     def __init__(self, position):
+        super().__init__(0, 1, Vector2(2, 2))
+
         self.position = position
-        self.ui = [NumberEdit("Signal 1", 400), NumberEdit("Signal 2", 0)]
+        self.ui = [NumberEdit("Signal 1", 440), NumberEdit("Signal 2", 0)]
 
         self.switch = True
 
-        super().__init__(0, 1, Vector2(2, 2))
-
-    def transform(self):
-        pass
+    def process(self):
+        samples = np.linspace(0, 1, sampleRate)
+        return np.sin(2 * np.pi * self.ui[0].value * samples)
 
 
 class Cable:

@@ -33,3 +33,11 @@ class NumberEdit(ListElement):
 
         super().__init__([Text(name), Number(value)])
 
+
+class Button(ListElement):
+    def __init__(self, name, function):
+        self.name = name
+        self.function = function
+
+        super().__init__([Text(name)])
+
