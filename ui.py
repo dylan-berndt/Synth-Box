@@ -1,4 +1,5 @@
 
+
 class ListItem:
     def __init__(self):
         self.text = ""
@@ -14,6 +15,13 @@ class Number(ListItem):
     def __init__(self, num):
         super().__init__()
         self.text = str(num)
+
+
+class List(ListItem):
+    def __init__(self, text, items):
+        super().__init__()
+        self.text = text + ">"
+        self.items = items
 
 
 class ListElement:
@@ -35,9 +43,10 @@ class NumberEdit(ListElement):
 
 
 class Button(ListElement):
-    def __init__(self, name, function):
+    def __init__(self, name, function, args=None):
         self.name = name
         self.function = function
+        self.args = args
 
         super().__init__([Text(name)])
 
