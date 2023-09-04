@@ -4,21 +4,38 @@ import screen
 from objects import *
 
 
+def save_state():
+    dialog = tkinter.Tk()
+    dialog.withdraw()
+    path = file.asksaveasfilename(title="Save State")
+
+
+def open_state():
+    dialog = tkinter.Tk()
+    dialog.withdraw()
+    path = file.asksaveasfilename(title="Open Save State", filetypes=[("State File", ".stt")])
+
+
 def create(item_type):
-    item_type(Vector2(0, -6) + camera_position)
+    item_type(Vector2(0, -6) + screen.camera_position)
 
 
-menu_list = [Button("Oscillator", create, Oscillator),
-             Button("Sampler", create, Sample),
-             Button("Splitter", create, Splitter),
-             Button("Adder", create, Adder),
-             Button("Amp", create, Amp),
-             Button("Attack", create, Attack),
-             Button("Decay", create, Decay),
-             Button("Pitch", create, Pitch),
-             Button("Sequencer", create, Sequencer),
-             Button("Beatbox", create, Beatbox),
-             Button("Speaker", create, Speaker)]
+generator_list = [Button("Oscillator", create, Oscillator),
+                  Button("Sampler", create, Sample)]
+
+effects_list = [Button("Amp", create, Amp),
+                Button("Attack", create, Attack),
+                Button("Decay", create, Decay),
+                Button("Pitch", create, Pitch),
+                Button("Tremolo", create, Tremolo),
+                Button("Vibrato", create, Vibrato)]
+
+mixer_list = [Button("Sequencer", create, Sequencer),
+              Button("Beatbox", create, Beatbox)]
+
+utility_list = [Button("Splitter", create, Splitter),
+                Button("Mixer", create, Mixer),
+                Button("Speaker", create, Speaker)]
 
 
 def attempt_cable(mp, cabling):
@@ -28,6 +45,9 @@ def attempt_cable(mp, cabling):
         if not point_in_object(mp, device):
             continue
         if cabling == device:
+            if device.switch is not None:
+                device.switch = not device.switch
+                update_process()
             return
         if cabling not in device.inputs:
             if not len(cabling.outputs) < cabling.total_outputs:
@@ -56,6 +76,7 @@ def run_ui(ui, pos, mx, my):
                             element.function(element.args)
                         else:
                             element.function()
+                        update_process()
                 j += 1
     return left_focus, ui_click, typing
 

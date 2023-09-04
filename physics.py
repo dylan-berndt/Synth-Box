@@ -23,7 +23,7 @@ def device_collision(d1, points, d2):
 
 
 def point_in_object(point, d):
-    if d.position.x + d.offset.x - d.size.x / 2 < point.x < d.position.x + d.offset.x + d.size.x / 2:
+    if d.position.x + d.offset.x - d.size.x / 2 <= point.x < d.position.x + d.offset.x + d.size.x / 2:
         if d.position.y + d.offset.y - d.size.y / 2 < point.y < d.position.y + d.offset.y + d.size.y / 2:
             return True
     return False
@@ -44,7 +44,7 @@ def sim_physics(devices, delta):
             moved = False
 
         device.position += device.velocity * delta * Vector2(0, 1)
-        underline = device.position.y - device.offset.y - device.size.y / 2 > 0.5
+        underline = device.position.y - device.offset.y - device.size.y / 2 > 1.5
         colliding_object = colliding(device, devices)
         if colliding_object or underline:
             if colliding_object:
