@@ -12,6 +12,7 @@ from screen import Sprite
 import os
 import pyaudio
 from sound import *
+import time
 
 sample_rate = 44100
 
@@ -20,11 +21,15 @@ process_flag = threading.Event()
 generator_flag = threading.Event()
 current_time = 0
 
+process_time = buffer_size / sample_rate
+
 sprite_paths = os.listdir("Resources/Devices/")
 sprite_paths = [os.path.join("Resources/Devices/", path) for path in sprite_paths]
 
 sequence_edit = None
 beatbox_edit = None
+
+state_flag = False
 
 
 def set_sequence_edit(device):
@@ -40,9 +45,13 @@ def set_beatbox_edit(device):
 def generate_thread(generators):
     global current_time
     while not generator_flag.is_set():
-        print("", end="\r")
+        before_process = time.time()
         for gen in generators:
             gen.push(current_time)
+        total_process = time.time() - before_process
+        forfeit = (process_time - total_process) / 2
+        if forfeit > 0:
+            time.sleep(forfeit)
         current_time += buffer_size
 
 
@@ -66,7 +75,7 @@ def process_thread(devices):
     generator_thread.start()
 
     while not process_flag.is_set() and devices:
-        print("", end="\r")
+        time.sleep(0.01)
         for speaker in speakers:
             if not speaker.queue or speaker.switch is False:
                 continue
@@ -96,7 +105,8 @@ class Object:
 
         Object.all_objects.append(self)
 
-        update_process()
+        if not state_flag:
+            update_process()
 
 
 def reset_process():
@@ -191,6 +201,15 @@ class Device(Object):
             Cable.remove(device, output)
         del device
 
+    @staticmethod
+    def clear_all():
+        while Object.all_objects:
+            device = Object.all_objects[0]
+            Sprite.all_sprites.remove(device.sprite)
+            del Object.all_objects[0]
+        while Cable.all_cables:
+            del Cable.all_cables[0]
+
 
 class Speaker(Device):
     def __init__(self, position):
@@ -255,8 +274,9 @@ class Mixer(Device):
         m = 0
         data = np.zeros(buffer_size)
         for i in self.inputs:
-            m += 1
-            data += i.output_data
+            if i.output_data != []:
+                m += 1
+                data += i.output_data
         return data / m
 
 
@@ -488,10 +508,10 @@ class Oscillator(Device):
 
 
 class Sample(Device):
-    def __init__(self, position):
-        self.path = ""
+    def __init__(self, position, path=None):
+        self.path = path if path is not None else ""
         self.data = []
-        self.get_data()
+        self.get_data(path)
 
         super().__init__(0, 1)
 
@@ -510,14 +530,16 @@ class Sample(Device):
         else:
             return np.concatenate((self.data[left:len(self.data)], self.data[0:right]))
 
-    def get_data(self):
-        dialog = tkinter.Tk()
-        dialog.withdraw()
-        self.path = file.askopenfilename(title="Open Sample", filetypes=[("Audio Files", ".wav .ogg .mp3")])
+    def get_data(self, path=""):
+        reset_process()
+        if path == "":
+            dialog = tkinter.Tk()
+            dialog.withdraw()
+            self.path = file.askopenfilename(title="Open Sample", filetypes=[("Audio Files", ".wav .ogg .mp3")])
 
-        if not self.path:
-            del self
-            return
+            if not self.path:
+                del self
+                return
 
         self.data, data_rate = sf.read(self.path)
 
@@ -530,6 +552,8 @@ class Sample(Device):
             resample = np.interp(np.linspace(0, len(self.data), length, endpoint=False),
                                  np.arange(len(self.data)), self.data)
             self.data = resample
+
+        set_process()
 
 
 class Cable:
@@ -553,7 +577,9 @@ class Cable:
         self.find_points()
 
         Cable.all_cables.append(self)
-        update_process()
+
+        if not state_flag:
+            update_process()
 
     def find_points(self):
         self.left_point = Vector2(self.left.position.x + 7 / 16, self.left.position.y + 9 / 16)

@@ -30,6 +30,8 @@ class ListElement:
     def __init__(self, rows):
         self.height = len(rows)
         self.items = rows
+        if not hasattr(self, "value"):
+            self.value = None
 
         ListElement.all_elements.append(self)
 

@@ -3,6 +3,7 @@ import pygame
 import screen
 from game import *
 import ctypes
+import pynput
 
 holding = None
 focus = None
@@ -13,9 +14,22 @@ debug = False
 menu = False
 
 dragging = False
-mpo = Vector2(0, 0)
+mouse = pynput.mouse.Controller()
+
+
+def on_click(x, y, button, pressed):
+    global dragging
+    if button == pynput.mouse.Button.left:
+        if not pressed:
+            dragging = False
+
+
+listener = pynput.mouse.Listener(on_click=on_click)
+listener.start()
+
+x, y = mouse.position
+mpo = Vector2(x, y)
 window_position = Vector2(100, 100)
-count = True
 
 window = pygame.display.set_mode((1200, 600), pygame.NOFRAME)
 pygame.display.set_caption("Synth Stomp")
@@ -45,6 +59,9 @@ def minimize():
     ctypes.windll.user32.ShowWindow(hwnd, 6)
 
 
+set_window_position(window_position.x, window_position.y)
+
+
 while True:
     clock.tick(120)
     fps = clock.get_fps()
@@ -58,8 +75,13 @@ while True:
             quit()
 
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_c and event.mod & pygame.KMOD_CTRL:
-                debug = not debug
+            if event.mod & pygame.KMOD_CTRL:
+                if event.key == pygame.K_c:
+                    debug = not debug
+                if event.key == pygame.K_s:
+                    save_state()
+                if event.key == pygame.K_o:
+                    open_state()
 
             if event.key == pygame.K_SPACE:
                 pass
@@ -106,7 +128,8 @@ while True:
                         menu = generator_list
                     else:
                         dragging = True
-                        mpo = Vector2(mx, my)
+                        x, y = mouse.position
+                        mpo = Vector2(x, y)
                 else:
                     menu = None
 
@@ -132,7 +155,6 @@ while True:
                 cabling = None
 
             if event.button == 1:
-                dragging = False
                 if holding:
                     pos = holding.position - screen.camera_position - trash_pos + holding.offset
                     if pos.magnitude() < 0.5:
@@ -143,17 +165,7 @@ while True:
                         focus = holding
                         holding = None
 
-        if event.type == pygame.MOUSEMOTION:
-            if dragging:
-                if count:
-                    diff = Vector2(mx, my) - mpo
-                    window_position += diff
-                    set_window_position(int(window_position.x), int(window_position.y))
-                    count = False
-                else:
-                    count = True
-
-    if fps != 0:
+    if fps > 4:
         sim_physics(Object.all_objects, 1 / fps)
 
         for cable in Cable.all_cables:
@@ -176,6 +188,13 @@ while True:
         rgt.position += shift
 
     trash.position = trash_pos + screen.camera_position
+
+    if dragging:
+        x, y = mouse.position
+        diff = Vector2(x, y) - mpo
+        window_position += diff
+        set_window_position(int(window_position.x), int(window_position.y))
+        mpo = Vector2(x, y)
 
     if holding:
         holding.velocity = (mp - holding.position - holding.offset) * 10
