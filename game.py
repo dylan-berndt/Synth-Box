@@ -22,7 +22,7 @@ def save_state():
                    (str(type(device).__name__), str(pos),
                     str([ui.value for ui in device.ui])))
         if type(device) == Sample:
-            save.write(', "path": %s' % device.path)
+            save.write(', "path": "%s"' % device.path)
         save.write("}\n")
 
     save.write("\n###\n")
@@ -61,7 +61,10 @@ def open_state():
             constructor = globals()[data['type']]
             position = tuple(data['position'])
             position = Vector2(position[0], position[1])
-            device = constructor(position)
+            if data['type'] == "Sample":
+                device = constructor(position, path=data['path'])
+            else:
+                device = constructor(position)
             devices.append(device)
 
             for u, ui in enumerate(device.ui):
@@ -80,22 +83,21 @@ def create(item_type):
     item_type(Vector2(0, -6) + screen.camera_position)
 
 
-generator_list = [Button("Oscillator", create, Oscillator),
+generator_list = [Button("Sine", create, Sine),
+                  Button("Square", create, Square),
+                  Button("Triangle", create, Triangle),
                   Button("Sampler", create, Sample)]
 
 effects_list = [Button("Amp", create, Amp),
-                Button("Attack", create, Attack),
-                Button("Decay", create, Decay),
                 Button("Pitch", create, Pitch),
                 Button("Tremolo", create, Tremolo),
-                Button("Vibrato", create, Vibrato)]
+                Button("Envelope", create, Envelope)]
 
-mixer_list = [Button("Sequencer", create, Sequencer),
-              Button("Beatbox", create, Beatbox)]
+mixer_list = [Button("Alternator", create, Alternator),
+              Button("Splitter", create, Splitter),
+              Button("Mixer", create, Mixer)]
 
-utility_list = [Button("Splitter", create, Splitter),
-                Button("Mixer", create, Mixer),
-                Button("Speaker", create, Speaker)]
+utility_list = [Button("Speaker", create, Speaker)]
 
 
 def attempt_cable(mp, cabling):

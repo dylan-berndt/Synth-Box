@@ -30,7 +30,7 @@ def point_in_object(point, d):
 
 
 def sim_physics(devices, delta):
-    gravity = 20 * delta
+    gravity = 20 * min(delta, 1/60)
 
     for device in devices:
         moved = True

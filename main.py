@@ -4,6 +4,7 @@ import screen
 from game import *
 import ctypes
 import pynput
+import sys
 
 holding = None
 focus = None
@@ -32,7 +33,8 @@ mpo = Vector2(x, y)
 window_position = Vector2(100, 100)
 
 window = pygame.display.set_mode((1200, 600), pygame.NOFRAME)
-pygame.display.set_caption("Synth Stomp")
+pygame.display.set_caption("Synth Box")
+pygame.display.set_icon(pygame.image.load("Resources/logo.png"))
 
 mid = Sprite("Resources/back.png")
 lft = Sprite("Resources/back.png")
@@ -43,8 +45,6 @@ trash_pos = Vector2(-8.75, -3.25)
 
 lft.position = Vector2(-6, 0)
 rgt.position = Vector2(6, 0)
-
-Oscillator(Vector2(0, 0))
 
 clock = pygame.time.Clock()
 
@@ -72,7 +72,7 @@ while True:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             pygame.quit()
-            quit()
+            sys.exit()
 
         if event.type == pygame.KEYDOWN:
             if event.mod & pygame.KMOD_CTRL:
@@ -86,19 +86,16 @@ while True:
             if event.key == pygame.K_SPACE:
                 pass
 
-            if event.unicode.isnumeric() or event.unicode in [".", "-"]:
-                if typing:
-                    typing.items[1].text += event.unicode
-                    typing.value = float(typing.items[1].text)
+            if typing:
+                if event.unicode.isalnum() or event.unicode in [".", "-", "#"]:
+                    data = typing.items[1].text + event.unicode
+                    typing.value = data
                     update_process()
 
             if event.key == pygame.K_BACKSPACE:
                 if typing:
-                    typing.items[1].text = typing.items[1].text[0:-1]
-                    if len(typing.items[1].text) == 0:
-                        typing.value = 0
-                    else:
-                        typing.value = float(typing.items[1].text)
+                    data = typing.items[1].text[:-1]
+                    typing.value = data
                     update_process()
 
         if event.type == pygame.MOUSEBUTTONDOWN:
@@ -115,7 +112,7 @@ while True:
                     if mx > 1120:
                         if mx > 1160:
                             pygame.quit()
-                            quit()
+                            sys.exit()
                         else:
                             minimize()
                     elif mx > 1050 - 100:
@@ -165,7 +162,9 @@ while True:
                         focus = holding
                         holding = None
 
-    if fps > 4:
+    if fps != 0:
+        for device in Object.all_objects:
+            device.anim_time += 1 / fps
         sim_physics(Object.all_objects, 1 / fps)
 
         for cable in Cable.all_cables:
@@ -173,11 +172,12 @@ while True:
 
         s = mp - screen.camera_position
         if abs(s.x) > 7 and s.y > -1 and not menu:
-            speed = (s.x / abs(s.x)) * (abs(s.x) - 7)
-            screen.camera_position += Vector2(speed * 1 / fps, 0) * 2.3 * 1.5
+            if mx != 0 and mx != 1199:
+                speed = (s.x / abs(s.x)) * (abs(s.x) - 7)
+                screen.camera_position += Vector2(speed * 1 / fps, 0) * 2.3 * 1.5
 
-            for device in Object.all_objects:
-                device.position -= Vector2(speed * 1 / fps, 0) * 1.4 * 1.5
+                for device in Object.all_objects:
+                    device.position -= Vector2(speed * 1 / fps, 0) * 1.4 * 1.5
 
     diff = screen.camera_position.x - mid.position.x
     if abs(diff) > 6:
@@ -199,4 +199,4 @@ while True:
     if holding:
         holding.velocity = (mp - holding.position - holding.offset) * 10
 
-    draw(window, Object.all_objects, Cable.all_cables, focus, debug, menu)
+    draw(window, Object.all_objects, Cable.all_cables, focus, debug, menu, cabling=cabling)

@@ -1,12 +1,15 @@
 import pygame
 from MathBasic import *
 from pygame.gfxdraw import bezier
+import os
 
 ppu = 64
+anim_fps = 24
 
 camera_position = Vector2(0, 0)
 
 surface = pygame.Surface((1200, 600), pygame.SRCALPHA)
+converted = False
 bg = pygame.Surface((300, 150))
 
 cb = pygame.Surface((300, 150), pygame.SRCALPHA)
@@ -14,6 +17,7 @@ cb = pygame.Surface((300, 150), pygame.SRCALPHA)
 pygame.font.init()
 font = pygame.font.Font("Resources/04B03.ttf", 24)
 item_sprite = pygame.image.load("Resources/element.png")
+expand = pygame.image.load("Resources/expand.png")
 
 shadow = pygame.image.load("Resources/shadow.png")
 
@@ -21,18 +25,47 @@ sequence_edit = pygame.image.load("Resources/sequence_edit.png")
 
 controls = pygame.image.load("Resources/controls.png")
 
+logo = pygame.image.load("Resources/logo.png")
 
-class Sprite(pygame.Surface):
+paths = os.listdir("Resources/Waves/")
+triangle_wave = [pygame.image.load(os.path.join("Resources/Waves/", path)) for path in paths if path[0:2] == "tr"]
+square_wave = [pygame.image.load(os.path.join("Resources/Waves/", path)) for path in paths if path[0:2] == "sq"]
+sine_wave = [pygame.image.load(os.path.join("Resources/Waves/", path)) for path in paths if path[0:2] == "si"]
+tape_roll = [pygame.image.load(os.path.join("Resources/Waves/", path)) for path in paths if path[0:2] == "ta"]
+
+wave_dict = {"Sine": sine_wave, "Square": square_wave, "Triangle": triangle_wave, "Sample": tape_roll}
+
+
+class Sprite(pygame.sprite.Sprite):
     all_sprites = []
+    group = pygame.sprite.Group()
 
     def __init__(self, path):
-        data = pygame.image.load(path).convert_alpha()
-        super().__init__(data.get_size(), pygame.SRCALPHA)
-        self.size = Vector2(data.get_size()[0], data.get_size()[1])
-        self.blit(data, (0, 0))
+        super().__init__()
+
+        self.image = pygame.image.load(path).convert_alpha()
+        self.size = Vector2(self.image.get_size()[0], self.image.get_size()[1])
         self.position = Vector2(0, 0)
+        self.rect = self.image.get_rect()
 
         Sprite.all_sprites.append(self)
+        Sprite.group.add(self)
+
+    def remove(self):
+        Sprite.all_sprites.remove(self)
+        Sprite.group.remove(self)
+        del self
+
+    def update(self):
+        pos = world_to_camera(self.position)
+        self.rect.x = pos.x - self.size.x / 2
+        self.rect.y = pos.y - self.size.y / 2
+
+    def get_width(self):
+        return self.rect.width
+
+    def get_height(self):
+        return self.rect.height
 
 
 def world_to_camera(position):
@@ -49,13 +82,16 @@ def camera_to_world(position):
 
 def draw_list(items):
     list_size = sum(element.height for element in items)
-    list_surface = pygame.Surface((36 * 4, list_size * 12 * 4))
+    exp = True in [type(element).__name__ == "Expand" for element in items]
+    list_surface = pygame.Surface((36 * 4 * (1 + exp), list_size * 12 * 4))
     j = 0
     for e, element in enumerate(items):
         for i, item in enumerate(element.items):
             list_surface.blit(item_sprite, (0, j * 12 * 4))
             render = font.render(item.text, False, [255, 255, 255])
             list_surface.blit(render, (6, j * 12 * 4 + 12))
+            if type(element).__name__ == "Expand":
+                list_surface.blit(expand, (0, j * 12 * 4))
             j += 1
     return list_surface
 
@@ -82,7 +118,9 @@ def draw_bg(shift):
             pygame.draw.polygon(bg, color, points)
 
 
-def draw_cables(cables):
+def draw_cables(cables, cabling):
+    mx, my = pygame.mouse.get_pos()
+
     cb.fill([0, 0, 0, 0])
     for cable in cables:
         dark = [num * 0.6 for num in cable.color]
@@ -92,7 +130,18 @@ def draw_cables(cables):
         bezier(cb, under, 10, dark)
         bezier(cb, points, 10, cable.color)
 
+    if cabling is not None:
+        pos = cabling.position + Vector2(7/16, 9/16)
+        pos += Vector2(0, -6/16) * (len(cabling.outputs) - 1 * (len(cabling.outputs) >= cabling.total_outputs))
+        left = world_to_camera(pos) / 4
+        pygame.draw.line(cb, (255, 255, 255), [left.x, left.y], [mx / 4, my / 4], 2)
+
     cable_draw = pygame.transform.scale(cb, (1200, 600))
+
+    if cabling is not None:
+        pos = left * 4
+        pygame.draw.rect(cable_draw, [255, 255, 255], [pos.x - 4, pos.y - 4, 8, 8])
+
     for cable in cables:
         dark = [num * 0.6 for num in cable.color]
         points = [world_to_camera(point) for point in [cable.left_point, cable.right_point]]
@@ -106,8 +155,13 @@ def draw_cables(cables):
     return cable_draw
 
 
-def draw(window, objects, cables, focus, debug, menu, seq=None, beat=None):
+def draw(window, objects, cables, focus, debug, menu, seq=None, beat=None, cabling=None):
     mx, my = pygame.mouse.get_pos()
+
+    global converted
+    if not converted:
+        surface.convert()
+        converted = True
 
     cam = world_to_screen(camera_position)
     draw_bg(cam.x / 4 % (ppu / 2))
@@ -124,12 +178,20 @@ def draw(window, objects, cables, focus, debug, menu, seq=None, beat=None):
         pos -= obj.sprite.size / 2
         surface.blit(shadow, (pos.x, pos.y))
 
-    for sprite in Sprite.all_sprites:
-        pos = world_to_camera(sprite.position)
-        pos -= sprite.size / 2
-        surface.blit(sprite, (pos.x, pos.y))
+    Sprite.group.update()
+    Sprite.group.draw(surface)
 
-    cable_layer = draw_cables(cables)
+    for device in objects:
+        if not device.switch:
+            continue
+        if type(device).__name__ in wave_dict:
+            wave = wave_dict[type(device).__name__]
+            pos = world_to_camera(device.position)
+            pos -= device.sprite.size / 2
+            sprite_num = int((device.anim_time * anim_fps) % len(wave))
+            surface.blit(wave[sprite_num], (pos.x, pos.y))
+
+    cable_layer = draw_cables(cables, cabling)
     surface.blit(cable_layer, (0, 0))
 
     if focus and not menu:
@@ -146,17 +208,17 @@ def draw(window, objects, cables, focus, debug, menu, seq=None, beat=None):
         surface.blit(sequence_edit, [0, 600 - (32 * 4)])
 
     pygame.draw.rect(surface, [0, 0, 0], [0, 0, 1200, 48])
-    synth_stomp = font.render("Synth Stomp", False, (255, 255, 255))
-    surface.blit(synth_stomp, (16, 12))
+    synth_stomp = font.render("Synth Box", False, (255, 255, 255))
+    surface.blit(synth_stomp, (48 + 16 + 30, 14))
     plus = font.render("|  Generators  |  Effects  |  Mixing  |  Utility  |", False, (255, 255, 255))
     num = plus.get_width()
-    surface.blit(plus, (1200 - num - 16 - 100, 12))
+    surface.blit(plus, (1200 - num - 16 - 100, 14))
+    surface.blit(logo, (24, 8))
 
     surface.blit(controls, (1200 - 80, 0))
 
     if debug:
         for obj in objects:
-            obj.sprite.position = obj.position
             tl = world_to_camera(obj.position + obj.offset - obj.size / 2)
             pygame.draw.rect(surface, [0, 255, 0], [tl.x, tl.y, obj.size.x * ppu, obj.size.y * ppu], 1)
         mouse_pos = font.render(str(mx) + ", " + str(my), False, (255, 255, 255))
