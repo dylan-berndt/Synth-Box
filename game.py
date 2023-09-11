@@ -23,6 +23,11 @@ def save_state():
                     str([ui.value for ui in device.ui])))
         if type(device) == Sample:
             save.write(', "path": "%s"' % device.path)
+        if type(device) == Beatbox:
+            save.write(', "notation": %s' % device.notation)
+            save.write(', "time": %s' % device.time_signature)
+        if type(device) == Sequencer:
+            save.write(', "sequence": %s' % device.sequence)
         save.write("}\n")
 
     save.write("\n###\n")
@@ -65,6 +70,15 @@ def open_state():
                 device = constructor(position, path=data['path'])
             else:
                 device = constructor(position)
+            if data['type'] == "Beatbox":
+                device.time_signature = data['time']
+                notation = data['notation']
+                for y in range(len(notation)):
+                    for x in range(len(notation[0])):
+                        if notation[y][x]:
+                            device.add_note(x, y)
+            if data['type'] == "Sequencer":
+                device.sequence = data['sequence']
             devices.append(device)
 
             for u, ui in enumerate(device.ui):
@@ -91,11 +105,13 @@ generator_list = [Button("Sine", create, Sine),
 effects_list = [Button("Amp", create, Amp),
                 Button("Pitch", create, Pitch),
                 Button("Tremolo", create, Tremolo),
-                Button("Envelope", create, Envelope)]
+                Button("Echo", create, Echo)]
 
 mixer_list = [Button("Alternator", create, Alternator),
               Button("Splitter", create, Splitter),
-              Button("Mixer", create, Mixer)]
+              Button("Mixer", create, Mixer),
+              Button("Beatbox", create, Beatbox),
+              Button("Sequencer", create, Sequencer)]
 
 utility_list = [Button("Speaker", create, Speaker)]
 
@@ -158,3 +174,24 @@ def check_focus_ui(focus, mx, my):
     pos.y -= focus.sprite.get_height() / 2 + 16 + height
 
     return run_ui(focus.ui, pos, mx, my)
+
+
+def beatbox_num(beat, mx, my, add=True):
+    if my > 400:
+        divisions = len(beat.notation[0]), 4
+        size = 1200 / divisions[0], 200 / divisions[1]
+        button = int(mx / size[0]), int((my - 400) / size[1])
+        if add:
+            beat.add_note(button[0], button[1])
+        else:
+            beat.remove_note(button[0], button[1])
+
+
+def sequence_num(beat, mx, my, add=True):
+    if my > 136 * 4:
+        size = 1200 / 8
+        button = int(mx / size)
+        if add:
+            beat.sequence[button] = 1
+        else:
+            beat.sequence[button] = 0

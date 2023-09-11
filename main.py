@@ -1,5 +1,6 @@
 import pygame
 
+import objects
 import screen
 from game import *
 import ctypes
@@ -90,21 +91,38 @@ while True:
                 if event.unicode.isalnum() or event.unicode in [".", "-", "#"]:
                     data = typing.items[1].text + event.unicode
                     typing.value = data
-                    update_process()
 
             if event.key == pygame.K_BACKSPACE:
                 if typing:
                     data = typing.items[1].text[:-1]
                     typing.value = data
-                    update_process()
 
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 3:
+                if objects.beatbox_edit:
+                    beatbox_num(objects.beatbox_edit, mx, my, False)
+                    if my > 320:
+                        continue
+                if objects.sequence_edit:
+                    sequence_num(objects.sequence_edit, mx, my, False)
+                    if my > 360:
+                        continue
                 for device in Object.all_objects:
                     if point_in_object(mp, device):
                         cabling = device
 
             if event.button == 1:
+                if my < 480:
+                    if my < 320:
+                        objects.beatbox_edit = None
+                    objects.sequence_edit = None
+                if objects.beatbox_edit:
+                    beatbox_num(objects.beatbox_edit, mx, my, True)
+                    continue
+                elif objects.sequence_edit:
+                    sequence_num(objects.sequence_edit, mx, my, True)
+                    continue
+
                 if menu:
                     check_menu_ui(mx, my, menu)
 
@@ -145,6 +163,7 @@ while True:
                             left_focus = False
                 if left_focus:
                     focus = None
+                    update_process()
 
         if event.type == pygame.MOUSEBUTTONUP:
             if event.button == 3:
@@ -171,7 +190,7 @@ while True:
             cable.update(1 / fps)
 
         s = mp - screen.camera_position
-        if abs(s.x) > 7 and s.y > -1 and not menu:
+        if abs(s.x) > 7 and s.y > -1 and not menu and not objects.beatbox_edit:
             if mx != 0 and mx != 1199:
                 speed = (s.x / abs(s.x)) * (abs(s.x) - 7)
                 screen.camera_position += Vector2(speed * 1 / fps, 0) * 2.3 * 1.5
@@ -199,4 +218,5 @@ while True:
     if holding:
         holding.velocity = (mp - holding.position - holding.offset) * 10
 
-    draw(window, Object.all_objects, Cable.all_cables, focus, debug, menu, cabling=cabling)
+    draw(window, Object.all_objects, Cable.all_cables, focus, debug, menu, cabling=cabling,
+         seq=objects.sequence_edit, beat=objects.beatbox_edit)
