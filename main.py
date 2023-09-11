@@ -18,6 +18,8 @@ menu = False
 dragging = False
 mouse = pynput.mouse.Controller()
 
+modify = False
+
 
 def on_click(x, y, button, pressed):
     global dragging
@@ -89,11 +91,12 @@ while True:
 
             if typing:
                 if event.unicode.isalnum() or event.unicode in [".", "-", "#"]:
+                    modify = True
                     data = typing.items[1].text + event.unicode
                     typing.value = data
 
-            if event.key == pygame.K_BACKSPACE:
-                if typing:
+                if event.key == pygame.K_BACKSPACE:
+                    modify = True
                     data = typing.items[1].text[:-1]
                     typing.value = data
 
@@ -162,8 +165,10 @@ while True:
                         if holding == focus:
                             left_focus = False
                 if left_focus:
+                    if modify:
+                        modify = False
+                        update_process()
                     focus = None
-                    update_process()
 
         if event.type == pygame.MOUSEBUTTONUP:
             if event.button == 3:

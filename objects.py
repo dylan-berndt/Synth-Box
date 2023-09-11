@@ -16,7 +16,7 @@ import threading
 
 sample_rate = 44100
 
-buffer_size = 2048
+buffer_size = 1024
 process_flag = threading.Event()
 generator_flag = threading.Event()
 current_time = 0
@@ -50,8 +50,8 @@ def generate_thread(generators):
             gen.push(current_time)
         total_process = time_package.time() - before_process
         forfeit = (process_time - total_process) / 2
-        # if forfeit > 0:
-        #     time_package.sleep(forfeit)
+        if forfeit > 0:
+            time_package.sleep(forfeit)
         current_time += buffer_size
 
 
@@ -67,21 +67,12 @@ def process_thread(devices):
         elif type(device) == Speaker:
             speakers.append(device)
 
-    for speaker in speakers:
-        speaker.queue = []
-
     generator_thread = threading.Thread(target=generate_thread, args=(generators,))
     generator_thread.setDaemon(True)
     generator_thread.start()
 
     while not process_flag.is_set() and devices:
         time_package.sleep(0.01)
-        for speaker in speakers:
-            if not speaker.queue or speaker.switch is False:
-                continue
-            data = speaker.queue.pop(0)
-            data = np.clip(data, -1, 1)
-            speaker.stream.write(data.astype(np.float32).tobytes())
 
     generator_flag.set()
     process_flag.clear()
@@ -208,13 +199,17 @@ class Speaker(Device):
         audio = pyaudio.PyAudio()
         self.stream = audio.open(format=pyaudio.paFloat32, channels=1, rate=sample_rate, output=True,
                                  frames_per_buffer=buffer_size)
-        self.queue = []
+        self.queue = np.zeros(buffer_size)
 
         super().__init__(1, 0)
 
     def _push(self, time):
         for i in self.inputs:
-            self.queue.append(i.output_data)
+            data = i.output_data
+            x = np.max(np.abs(data))
+            if x > 1:
+                data = data / x
+            self.stream.write(data.astype(np.float32).tobytes())
 
 
 class Splitter(Device):
@@ -415,10 +410,12 @@ class Alternator(Device):
     def _push(self, time):
         if len(self.inputs) <= 1:
             return np.zeros(buffer_size)
-        i1 = self.inputs[0].output_data * (self.inputs[1].output_data < 0)
+        filter_high = self.inputs[1].output_data < 0
+        filter_low = 1 - filter_high
+        i1 = self.inputs[0].output_data * filter_high
         if len(self.inputs) == 2:
             return i1
-        i2 = self.inputs[2].output_data * (self.inputs[1].output_data >= 0)
+        i2 = self.inputs[2].output_data * filter_low
         if len(self.inputs) == 3:
             return i1 + i2
 
@@ -428,7 +425,7 @@ class Beatbox(Device):
         self.position = position
         super().__init__(4, 1, Vector2(3.2, 2))
 
-        self.envelope_data = [0.1, 0.05, 0, 0.2]
+        self.envelope_data = [0.1, 0.2, 0.2, 0.2]
         self.ui = [NumberEdit("BPM", 120), Button("Edit...", set_beatbox_edit, self)]
         self.prev_bpm = 120
 
@@ -448,7 +445,7 @@ class Beatbox(Device):
         self.total_notes = t * 2
         self.note_time = self.total_notes * self.note_duration
         self.notation = [[0 for i in range(t * 2)] for j in range(4)]
-        self.masks = [np.array([0 for i in range(self.note_time)], dtype=np.float) for j in range(4)]
+        self.masks = [np.array([0 for i in range(self.note_time)], dtype=float) for j in range(4)]
         self.envelope = np.array([1 for i in range(self.note_duration)])
         self._time_signature = t
         self.gen_envelope()
@@ -479,6 +476,7 @@ class Beatbox(Device):
             self.masks[y][:extra] += self.envelope[left:]
         else:
             self.masks[y][start:start + len(self.envelope)] += self.envelope
+        self.masks[y] = np.clip(self.masks[y], 0, 1)
 
     def remove_note(self, x, y):
         if not self.notation[y][x]:
@@ -492,6 +490,7 @@ class Beatbox(Device):
             self.masks[y][:extra] -= self.envelope[left:]
         else:
             self.masks[y][start:start + len(self.envelope)] -= self.envelope
+        self.masks[y] = np.clip(self.masks[y], 0, 1)
 
     def push(self, time):
         if not self.switch:
