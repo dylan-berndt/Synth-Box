@@ -30,6 +30,8 @@ def point_in_object(point, d):
 
 
 def sim_physics(devices, delta):
+    bumps = []
+
     gravity = 20 * min(delta, 1/60)
 
     for device in devices:
@@ -47,6 +49,8 @@ def sim_physics(devices, delta):
         underline = device.position.y - device.offset.y - device.size.y / 2 > 1.5
         colliding_object = colliding(device, devices)
         if colliding_object or underline:
+            if device.velocity.y > 1:
+                bumps.append(device.velocity.y)
             if colliding_object:
                 colliding_object.velocity += device.velocity * Vector2(0, 0.4)
             device.position -= device.velocity * delta * Vector2(0, 1)
@@ -59,5 +63,7 @@ def sim_physics(devices, delta):
         else:
             if abs(device.velocity.y) < 0.5:
                 device.velocity *= Vector2(1, 0)
+
+    return bumps
 
 

@@ -35,12 +35,17 @@ triangle_wave = [pygame.image.load(os.path.join("Resources/Waves/", path)) for p
 square_wave = [pygame.image.load(os.path.join("Resources/Waves/", path)) for path in paths if path[0:2] == "sq"]
 sine_wave = [pygame.image.load(os.path.join("Resources/Waves/", path)) for path in paths if path[0:2] == "si"]
 tape_roll = [pygame.image.load(os.path.join("Resources/Waves/", path)) for path in paths if path[0:2] == "ta"]
+sweep = [pygame.image.load(os.path.join("Resources/Waves/", path)) for path in paths if path[0:2] == "sw"]
 
-wave_dict = {"Sine": sine_wave, "Square": square_wave, "Triangle": triangle_wave, "Sample": tape_roll}
+wave_dict = {"Sine": sine_wave, "Square": square_wave, "Triangle": triangle_wave, "Sample": tape_roll,
+             "Beatbox": sweep}
 
 switch_path = os.listdir("Resources/Switch/")
 switches = [pygame.image.load(os.path.join("Resources/Switch/", path)) for path in switch_path if path[0] != "f"]
 f_switches = [pygame.image.load(os.path.join("Resources/Switch/", path)) for path in switch_path if path[0] == "f"]
+
+lag = pygame.image.load("Resources/lag.png")
+lag_flag = False
 
 
 class Sprite(pygame.sprite.Sprite):
@@ -88,18 +93,15 @@ def camera_to_world(position):
 
 
 def draw_list(items):
-    list_size = sum(element.height for element in items)
-    exp = True in [type(element).__name__ == "Expand" for element in items]
-    list_surface = pygame.Surface((36 * 4 * (1 + exp), list_size * 12 * 4))
-    j = 0
+    list_size = len(items)
+    exp = True in [type(element).__name__ == "NumberEdit" for element in items]
+    list_surface = pygame.Surface((36 * 4 * (1 + exp), list_size * 12 * 4), pygame.SRCALPHA)
     for e, element in enumerate(items):
         for i, item in enumerate(element.items):
-            list_surface.blit(item_sprite, (0, j * 12 * 4))
+            x = i * 36 * 4
+            list_surface.blit(item_sprite, (x, e * 12 * 4))
             render = font.render(item.text, False, [255, 255, 255])
-            list_surface.blit(render, (6, j * 12 * 4 + 12))
-            if type(element).__name__ == "Expand":
-                list_surface.blit(expand, (0, j * 12 * 4))
-            j += 1
+            list_surface.blit(render, (x + 6, e * 12 * 4 + 12))
     return list_surface
 
 
@@ -119,8 +121,8 @@ def draw_bb(beatbox):
 
         def draw_note(value, j):
             color = (255, 255, 255) if value > 0 else (46, 34, 47)
-            w, h = width * (j % row_size) + 3, height * int(j / row_size) + 101 + (12 * (4 - rows))
-            pygame.draw.rect(bb, color, (w, h, width - 2, height - 2), width=1)
+            w, h = width * (j % row_size) + 2, height * int(j / row_size) + 101 + (12 * (4 - rows))
+            pygame.draw.rect(bb, color, (w, h, width - 4, height - 2), width=1)
 
         for row in (beatbox.sequence if not b else beatbox.notation):
             if not b:
@@ -131,6 +133,14 @@ def draw_bb(beatbox):
                     draw_note(note > 0, j)
                     j += 1
         box = pygame.transform.scale(bb, (1200, 600))
+        if b:
+            text = font.render("Notes:     " + str(beatbox.time_signature), True, (255, 255, 255))
+            box.blit(text, (1010, 356))
+            name = font.render("Beatbox", True, (255, 255, 255))
+            box.blit(name, (600 - name.get_width() / 2, 356))
+        else:
+            name = font.render("Sequencer", True, (255, 255, 255))
+            box.blit(name, (600 - name.get_width() / 2, 356))
         return box
     else:
         return pygame.Surface((1200, 600), pygame.SRCALPHA)
@@ -253,6 +263,9 @@ def draw(window, objects, cables, focus, debug, menu, seq=None, beat=None, cabli
     if menu:
         menu_surface = draw_list(menu)
         surface.blit(menu_surface, (1200 - 36 * 4, 48))
+
+    if lag_flag:
+        surface.blit(lag, (576, 276))
 
     pygame.draw.rect(surface, [0, 0, 0], [0, 0, 1200, 48])
     synth_stomp = font.render("Synth Box", False, (255, 255, 255))

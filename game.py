@@ -1,9 +1,17 @@
+import pygame.mixer
+
 from physics import *
 from screen import *
 import screen
 from objects import *
 import json
 import objects
+
+pygame.mixer.init()
+effect_names = ["bounce", "connect", "create", "load", "save", "switch"]
+effect_sounds = [pygame.mixer.Sound(os.path.join("Resources/Effects/", path + ".mp3")) for path in effect_names]
+effects = dict(zip(effect_names, effect_sounds))
+effects["create"].set_volume(0.3)
 
 
 def save_state():
@@ -37,6 +45,7 @@ def save_state():
         save.write(str(left) + ", " + str(right) + "\n")
 
     set_process()
+    effects["save"].play()
 
 
 def open_state():
@@ -72,11 +81,8 @@ def open_state():
                 device = constructor(position)
             if data['type'] == "Beatbox":
                 device.time_signature = data['time']
-                notation = data['notation']
-                for y in range(len(notation)):
-                    for x in range(len(notation[0])):
-                        if notation[y][x]:
-                            device.add_note(x, y)
+                device.notation = data['notation']
+                device.notation_update()
             if data['type'] == "Sequencer":
                 device.sequence = data['sequence']
             devices.append(device)
@@ -91,10 +97,12 @@ def open_state():
     objects.state_flag = False
 
     set_process()
+    effects["load"].play()
 
 
 def create(item_type):
     item_type(Vector2(0, -6) + screen.camera_position)
+    effects["create"].play()
 
 
 generator_list = [Button("Sine", create, Sine),
@@ -108,8 +116,7 @@ effects_list = [Button("Amp", create, Amp),
                 Button("Echo", create, Echo)]
 
 mixer_list = [Button("Alternator", create, Alternator),
-              Button("Splitter", create, Splitter),
-              Button("Mixer", create, Mixer),
+              Button("Bus", create, Bus),
               Button("Beatbox", create, Beatbox),
               Button("Sequencer", create, Sequencer)]
 
@@ -126,49 +133,53 @@ def attempt_cable(mp, cabling):
             if device.switch is not None:
                 device.switch = not device.switch
                 update_process()
+                effects["switch"].play()
             return
         if cabling not in device.inputs:
             if not len(cabling.outputs) < cabling.total_outputs:
                 return
             if len(device.inputs) < device.total_inputs:
                 Device.connect(cabling, device)
+                effects["connect"].play()
         else:
             Cable.remove(cabling, device)
+            effects["connect"].play()
 
 
 def run_ui(ui, pos, mx, my):
     left_focus = True
     ui_click = False
     typing = None
-    if pos.x - 72 < mx < pos.x + 72:
-        j = 0
-        for e, element in enumerate(ui):
-            for i, item in enumerate(element.items):
-                if pos.y + (j * 48) < my < pos.y + ((j + 1) * 48):
-                    ui_click = True
-                    left_focus = False
-                    if type(item) == Number:
-                        typing = element
-                    if type(element) == Button:
-                        if element.args is not None:
-                            element.function(element.args)
-                        else:
-                            element.function()
-                        update_process()
-                j += 1
+    if not pos.x - 144 < mx < pos.x + 144:
+        return left_focus, ui_click, typing
+    for e, element in enumerate(ui):
+        for i, item in enumerate(element.items):
+            if not pos.x + ((i - 1) * 144) < mx < pos.x + (i * 144):
+                continue
+            if pos.y + (e * 48) < my < pos.y + ((e + 1) * 48):
+                ui_click = True
+                left_focus = False
+                if type(item) == Number:
+                    typing = element
+                if type(element) == Button:
+                    if element.args is not None:
+                        element.function(element.args)
+                    else:
+                        element.function()
+                    update_process()
     return left_focus, ui_click, typing
 
 
 def check_menu_ui(mx, my, menu_list):
-    height = sum(element.height for element in menu_list)
+    height = len(menu_list)
     height *= 48
-    pos = Vector2(1200 - 72, 48)
+    pos = Vector2(1200, 48)
 
     return run_ui(menu_list, pos, mx, my)
 
 
 def check_focus_ui(focus, mx, my):
-    height = sum(element.height for element in focus.ui)
+    height = len(focus.ui)
     height *= 48
     pos = world_to_camera(focus.position + focus.offset * 2)
     pos.y -= focus.sprite.get_height() / 2 + 16 + height
@@ -185,6 +196,11 @@ def beatbox_num(beat, mx, my, add=True):
             beat.add_note(button[0], button[1])
         else:
             beat.remove_note(button[0], button[1])
+    else:
+        if 1100 < mx < 1140:
+            beat.time_signature = max(beat.time_signature - 1, 1)
+        if 1175 < mx < 1200:
+            beat.time_signature = min(beat.time_signature + 1, 20)
 
 
 def sequence_num(beat, mx, my, add=True):
@@ -195,3 +211,9 @@ def sequence_num(beat, mx, my, add=True):
             beat.sequence[button] = 1
         else:
             beat.sequence[button] = 0
+
+
+def play_bumps(bumps):
+    for bump in bumps:
+        effects["bounce"].set_volume(min(1, bump / 12))
+        effects["bounce"].play()

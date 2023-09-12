@@ -8,6 +8,8 @@ notes = dict(zip(names, values))
 def interpret(data):
     if data == "":
         return 0, ""
+    if data == "-":
+        return 0, "-"
     if type(data) == str:
         try:
             num = float(data)
@@ -92,12 +94,5 @@ class Button(ListElement):
         self.function = function
         self.args = args
 
-        super().__init__([Text(name)])
-
-
-class Expand(ListElement):
-    def __init__(self, name, expand):
-        self.name = name
-        self.items = expand
         super().__init__([Text(name)])
 

@@ -1,7 +1,4 @@
-import pygame
-
 import objects
-import screen
 from game import *
 import ctypes
 import pynput
@@ -62,6 +59,12 @@ def minimize():
     ctypes.windll.user32.ShowWindow(hwnd, 6)
 
 
+def close():
+    reset_process()
+    pygame.quit()
+    sys.exit()
+
+
 set_window_position(window_position.x, window_position.y)
 
 
@@ -74,17 +77,18 @@ while True:
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
-            pygame.quit()
-            sys.exit()
+            close()
 
         if event.type == pygame.KEYDOWN:
             if event.mod & pygame.KMOD_CTRL:
                 if event.key == pygame.K_c:
-                    debug = not debug
+                    Device.clear_all()
                 if event.key == pygame.K_s:
                     save_state()
                 if event.key == pygame.K_o:
                     open_state()
+                if event.key == pygame.K_d:
+                    debug = not debug
 
             if event.key == pygame.K_SPACE:
                 pass
@@ -132,8 +136,7 @@ while True:
                 if my < 48:
                     if mx > 1120:
                         if mx > 1160:
-                            pygame.quit()
-                            sys.exit()
+                            close()
                         else:
                             minimize()
                     elif mx > 1050 - 100:
@@ -187,9 +190,13 @@ while True:
                         holding = None
 
     if fps != 0:
+        screen.lag_flag = objects.process_lag_flag > 0
+        objects.process_lag_flag = max(0, objects.process_lag_flag - 1 / fps)
+
         for device in Object.all_objects:
             device.anim_time += 1 / fps
-        sim_physics(Object.all_objects, 1 / fps)
+        bumps = sim_physics(Object.all_objects, 1 / fps)
+        play_bumps(bumps)
 
         for cable in Cable.all_cables:
             cable.update(1 / fps)
