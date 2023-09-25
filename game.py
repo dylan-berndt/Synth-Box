@@ -1,23 +1,34 @@
-import pygame.mixer
 
 from physics import *
 from screen import *
 import screen
-from objects import *
 import json
 import objects
 
-pygame.mixer.init()
+objects.sprite = Sprite
+
 effect_names = ["bounce", "connect", "create", "load", "save", "switch"]
-effect_sounds = [pygame.mixer.Sound(os.path.join("Resources/Effects/", path + ".mp3")) for path in effect_names]
-effects = dict(zip(effect_names, effect_sounds))
-effects["create"].set_volume(0.3)
+try:
+    effect_sounds = [pygame.mixer.Sound(os.path.join("Resources", "Effects", path) + ".wav") for path in effect_names]
+    effects = dict(zip(effect_names, effect_sounds))
+    effects["create"].set_volume(0.3)
+except FileNotFoundError:
+    print("SOUND NO FOUND")
+
+
+def play_sound(name, volume=1):
+    try:
+        if volume != 1:
+            effects[name].set_volume(volume)
+        effects[name].play()
+    except NameError:
+        return
 
 
 def save_state():
     reset_process()
 
-    dialog = tkinter.Tk()
+    dialog = tk.Tk()
     dialog.withdraw()
     path = file.asksaveasfilename(title="Save State", filetypes=[("State File", ".stt")], defaultextension=".stt")
     if path == "":
@@ -31,9 +42,9 @@ def save_state():
                     str([ui.value for ui in device.ui])))
         if type(device) == Sample:
             save.write(', "path": "%s"' % device.path)
-        if type(device) == Beatbox:
+        if type(device) in [Beatbox, Drumkit]:
             save.write(', "notation": %s' % device.notation)
-            save.write(', "time": %s' % device.time_signature)
+            save.write(', "time": %s' % device.length)
         if type(device) == Sequencer:
             save.write(', "sequence": %s' % device.sequence)
         save.write("}\n")
@@ -45,13 +56,13 @@ def save_state():
         save.write(str(left) + ", " + str(right) + "\n")
 
     set_process()
-    effects["save"].play()
+    play_sound("save")
 
 
 def open_state():
     reset_process()
 
-    dialog = tkinter.Tk()
+    dialog = tk.Tk()
     dialog.withdraw()
     path = file.askopenfilename(title="Open Save State", filetypes=[("State File", ".stt")])
     if path == "":
@@ -79,8 +90,8 @@ def open_state():
                 device = constructor(position, path=data['path'])
             else:
                 device = constructor(position)
-            if data['type'] == "Beatbox":
-                device.time_signature = data['time']
+            if data['type'] in ["Beatbox", "Drumkit"]:
+                device.length = data['time']
                 device.notation = data['notation']
                 device.notation_update()
             if data['type'] == "Sequencer":
@@ -90,37 +101,44 @@ def open_state():
             for u, ui in enumerate(device.ui):
                 ui.value = data['values'][u]
         elif line[:-1]:
-            interpret = eval(line[:-1])
-            left, right = devices[interpret[0]], devices[interpret[1]]
+            interp = eval(line[:-1])
+            left, right = devices[interp[0]], devices[interp[1]]
             Device.connect(left, right)
 
     objects.state_flag = False
 
     set_process()
-    effects["load"].play()
+    play_sound("load")
 
 
 def create(item_type):
     item_type(Vector2(0, -6) + screen.camera_position)
-    effects["create"].play()
+    play_sound("create")
 
 
 generator_list = [Button("Sine", create, Sine),
                   Button("Square", create, Square),
                   Button("Triangle", create, Triangle),
-                  Button("Sampler", create, Sample)]
+                  Button("Sampler", create, Sample),
+                  Button("Microphone", create, Microphone),
+                  Button("Drumkit", create, Drumkit)]
 
 effects_list = [Button("Amp", create, Amp),
                 Button("Pitch", create, Pitch),
                 Button("Tremolo", create, Tremolo),
-                Button("Echo", create, Echo)]
+                Button("Echo", create, Echo),
+                Button("Chorus", create, Chorus),
+                Button("Fuzz", create, Fuzz),
+                Button("Overdrive", create, Overdrive),
+                Button("Crusher", create, Bitcrusher)]
 
 mixer_list = [Button("Alternator", create, Alternator),
               Button("Bus", create, Bus),
               Button("Beatbox", create, Beatbox),
               Button("Sequencer", create, Sequencer)]
 
-utility_list = [Button("Speaker", create, Speaker)]
+utility_list = [Button("Speaker", create, Speaker),
+                Button("Recorder", create, Recorder)]
 
 
 def attempt_cable(mp, cabling):
@@ -132,18 +150,17 @@ def attempt_cable(mp, cabling):
         if cabling == device:
             if device.switch is not None:
                 device.switch = not device.switch
-                update_process()
-                effects["switch"].play()
+                play_sound("switch")
             return
         if cabling not in device.inputs:
             if not len(cabling.outputs) < cabling.total_outputs:
                 return
             if len(device.inputs) < device.total_inputs:
                 Device.connect(cabling, device)
-                effects["connect"].play()
+                play_sound("connect")
         else:
             Cable.remove(cabling, device)
-            effects["connect"].play()
+            play_sound("connect")
 
 
 def run_ui(ui, pos, mx, my):
@@ -166,7 +183,6 @@ def run_ui(ui, pos, mx, my):
                         element.function(element.args)
                     else:
                         element.function()
-                    update_process()
     return left_focus, ui_click, typing
 
 
@@ -190,7 +206,7 @@ def check_focus_ui(focus, mx, my):
 def beatbox_num(beat, mx, my, add=True):
     if my > 400:
         divisions = len(beat.notation[0]), 4
-        size = 1200 / divisions[0], 200 / divisions[1]
+        size = int(300 / divisions[0]) * 4, 200 / divisions[1]
         button = int(mx / size[0]), int((my - 400) / size[1])
         if add:
             beat.add_note(button[0], button[1])
@@ -198,9 +214,9 @@ def beatbox_num(beat, mx, my, add=True):
             beat.remove_note(button[0], button[1])
     else:
         if 1100 < mx < 1140:
-            beat.time_signature = max(beat.time_signature - 1, 1)
+            beat.length = max(beat.length - 1, 1)
         if 1175 < mx < 1200:
-            beat.time_signature = min(beat.time_signature + 1, 20)
+            beat.length = min(beat.length + 1, 20)
 
 
 def sequence_num(beat, mx, my, add=True):
@@ -215,5 +231,4 @@ def sequence_num(beat, mx, my, add=True):
 
 def play_bumps(bumps):
     for bump in bumps:
-        effects["bounce"].set_volume(min(1, bump / 12))
-        effects["bounce"].play()
+        play_sound("bounce", min(1, bump / 12))

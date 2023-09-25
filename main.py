@@ -1,10 +1,11 @@
 import objects
 from game import *
-import ctypes
 import pynput
 import sys
 
 holding = None
+holding_time = 0
+
 focus = None
 typing = None
 cabling = None
@@ -16,6 +17,8 @@ dragging = False
 mouse = pynput.mouse.Controller()
 
 modify = False
+
+minimap = False
 
 
 def on_click(x, y, button, pressed):
@@ -48,24 +51,10 @@ rgt.position = Vector2(6, 0)
 
 clock = pygame.time.Clock()
 
-hwnd = pygame.display.get_wm_info()["window"]
-
-
-def set_window_position(x, y):
-    ctypes.windll.user32.MoveWindow(hwnd, x, y, 1200, 600, True)
-
-
-def minimize():
-    ctypes.windll.user32.ShowWindow(hwnd, 6)
-
-
-def close():
-    reset_process()
-    pygame.quit()
-    sys.exit()
-
 
 set_window_position(window_position.x, window_position.y)
+
+set_process()
 
 
 while True:
@@ -89,6 +78,8 @@ while True:
                     open_state()
                 if event.key == pygame.K_d:
                     debug = not debug
+                if event.key == pygame.K_m:
+                    minimap = not minimap
 
             if event.key == pygame.K_SPACE:
                 pass
@@ -119,6 +110,8 @@ while True:
                         cabling = device
 
             if event.button == 1:
+                tab_check(mx, my)
+
                 if my < 480:
                     if my < 320:
                         objects.beatbox_edit = None
@@ -134,12 +127,7 @@ while True:
                     check_menu_ui(mx, my, menu)
 
                 if my < 48:
-                    if mx > 1120:
-                        if mx > 1160:
-                            close()
-                        else:
-                            minimize()
-                    elif mx > 1050 - 100:
+                    if 1120 > mx > 1050 - 100:
                         menu = utility_list
                     elif mx > 921 - 100:
                         menu = mixer_list
@@ -170,7 +158,6 @@ while True:
                 if left_focus:
                     if modify:
                         modify = False
-                        update_process()
                     focus = None
 
         if event.type == pygame.MOUSEBUTTONUP:
@@ -184,12 +171,13 @@ while True:
                     if pos.magnitude() < 0.5:
                         Device.remove(holding)
                         holding = None
-                        update_process()
+                        holding_time = 0
                     else:
                         focus = holding
                         holding = None
+                        holding_time = 0
 
-    if fps != 0:
+    if fps != 0 and fps > 5:
         screen.lag_flag = objects.process_lag_flag > 0
         objects.process_lag_flag = max(0, objects.process_lag_flag - 1 / fps)
 
@@ -202,7 +190,7 @@ while True:
             cable.update(1 / fps)
 
         s = mp - screen.camera_position
-        if abs(s.x) > 7 and s.y > -1 and not menu and not objects.beatbox_edit:
+        if abs(s.x) > 7 and s.y > -2 and not menu and not objects.beatbox_edit:
             if mx != 0 and mx != 1199:
                 speed = (s.x / abs(s.x)) * (abs(s.x) - 7)
                 screen.camera_position += Vector2(speed * 1 / fps, 0) * 2.3 * 1.5
@@ -228,7 +216,8 @@ while True:
         mpo = Vector2(x, y)
 
     if holding:
+        holding_time += 0 if fps == 0 else 1 / fps
+    if holding_time > 0.1:
         holding.velocity = (mp - holding.position - holding.offset) * 10
 
-    draw(window, Object.all_objects, Cable.all_cables, focus, debug, menu, cabling=cabling,
-         seq=objects.sequence_edit, beat=objects.beatbox_edit)
+    draw(window, focus, debug, menu, minimap, cabling=cabling)

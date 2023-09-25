@@ -1,9 +1,9 @@
-import pygame
+import objects
 from MathBasic import *
 from pygame.gfxdraw import bezier
 import os
+from objects import *
 
-ppu = 64
 anim_fps = 24
 
 camera_position = Vector2(0, 0)
@@ -16,8 +16,8 @@ cb = pygame.Surface((300, 150), pygame.SRCALPHA)
 
 bb = pygame.Surface((300, 150), pygame.SRCALPHA)
 
-pygame.font.init()
-font = pygame.font.Font("Resources/04B03.ttf", 24)
+mm = pygame.Surface((300, 150), pygame.SRCALPHA)
+
 item_sprite = pygame.image.load("Resources/element.png")
 expand = pygame.image.load("Resources/expand.png")
 
@@ -31,14 +31,22 @@ beatbox_ui = pygame.image.load("Resources/beatbox_ui.png")
 sequencer_ui = pygame.image.load("Resources/sequencer_ui.png")
 
 paths = os.listdir("Resources/Waves/")
-triangle_wave = [pygame.image.load(os.path.join("Resources/Waves/", path)) for path in paths if path[0:2] == "tr"]
-square_wave = [pygame.image.load(os.path.join("Resources/Waves/", path)) for path in paths if path[0:2] == "sq"]
-sine_wave = [pygame.image.load(os.path.join("Resources/Waves/", path)) for path in paths if path[0:2] == "si"]
-tape_roll = [pygame.image.load(os.path.join("Resources/Waves/", path)) for path in paths if path[0:2] == "ta"]
-sweep = [pygame.image.load(os.path.join("Resources/Waves/", path)) for path in paths if path[0:2] == "sw"]
 
-wave_dict = {"Sine": sine_wave, "Square": square_wave, "Triangle": triangle_wave, "Sample": tape_roll,
-             "Beatbox": sweep}
+
+def load_anim(name):
+    return [pygame.image.load(os.path.join("Resources/Waves/", path)) for path in paths if path[0:2] == name]
+
+
+triangle_wave = load_anim("tr")
+square_wave = load_anim("sq")
+sine_wave = load_anim("si")
+tape_roll = load_anim("ta")
+sweep = load_anim("sw")
+disk = load_anim("di")
+drum = load_anim("dr")
+
+wave_dict = {Sine: sine_wave, Square: square_wave, Triangle: triangle_wave, Sample: tape_roll,
+             Beatbox: sweep, Recorder: disk, Drumkit: drum}
 
 switch_path = os.listdir("Resources/Switch/")
 switches = [pygame.image.load(os.path.join("Resources/Switch/", path)) for path in switch_path if path[0] != "f"]
@@ -134,13 +142,14 @@ def draw_bb(beatbox):
                     j += 1
         box = pygame.transform.scale(bb, (1200, 600))
         if b:
-            text = font.render("Notes:     " + str(beatbox.time_signature), True, (255, 255, 255))
+            text = font.render("Notes:     " + str(beatbox.length), True, (255, 255, 255))
             box.blit(text, (1010, 356))
-            name = font.render("Beatbox", True, (255, 255, 255))
+            n = "Beatbox" if type(beatbox) == Beatbox else "Drumkit"
+            name = font.render(n, True, (255, 255, 255))
             box.blit(name, (600 - name.get_width() / 2, 356))
         else:
             name = font.render("Sequencer", True, (255, 255, 255))
-            box.blit(name, (600 - name.get_width() / 2, 356))
+            box.blit(name, (600 - name.get_width() / 2, 502))
         return box
     else:
         return pygame.Surface((1200, 600), pygame.SRCALPHA)
@@ -166,6 +175,20 @@ def draw_bg(shift):
             x1, x2, x3, x4 = stretch(x1, y), stretch(x2, y), stretch(x3, y + 1), stretch(x4, y + 1)
             points = [[x1, y1], [x2, y1], [x4, y2], [x3, y2]]
             pygame.draw.polygon(bg, color, points)
+
+
+def draw_minimap():
+    global mm
+    mm = pygame.Surface((300, 150), pygame.SRCALPHA)
+    pygame.draw.rect(mm, (255, 255, 255), (3, 135, 294, 12))
+    pygame.draw.rect(mm, (0, 0, 0), (4, 136, 292, 10))
+    for device in Device.all_objects:
+        x = int(2 * device.position.x - camera_position.x / 1.6)
+        y = int(device.position.y)
+        w = max(1, int(2 * device.size.x / 1.6))
+        h = max(1, int(2 * device.size.y / 1.6))
+        pygame.draw.rect(mm, (255, 255, 255), (x + 150, y + 141, w, h))
+    return pygame.transform.scale(mm, (1200, 600))
 
 
 def draw_cables(cables, cabling):
@@ -205,7 +228,12 @@ def draw_cables(cables, cabling):
     return cable_draw
 
 
-def draw(window, objects, cables, focus, debug, menu, seq=None, beat=None, cabling=None):
+def draw(window, focus, debug, menu, draw_mini, cabling=None):
+    devices = Device.all_objects
+    cables = Cable.all_cables
+    seq = objects.sequence_edit
+    beat = objects.beatbox_edit
+
     mx, my = pygame.mouse.get_pos()
 
     global converted
@@ -219,7 +247,7 @@ def draw(window, objects, cables, focus, debug, menu, seq=None, beat=None, cabli
     background = pygame.transform.scale(bg, (1200, 600))
     surface.blit(background, (0, 0))
 
-    for obj in objects:
+    for obj in devices:
         obj.sprite.position = obj.position
         y = ((4 * (10 + obj.position.y)) / 11.5) - 1.5
         x = obj.position.x + 0.5 * (3 - y)
@@ -232,20 +260,25 @@ def draw(window, objects, cables, focus, debug, menu, seq=None, beat=None, cabli
     Sprite.group.update()
     Sprite.group.draw(surface)
 
-    for device in objects:
+    for device in devices:
         pos = world_to_camera(device.position)
-        if device.switch is not None:
-            if device.total_outputs > 0:
-                switch_dir = switches[not device.switch]
-            else:
-                switch_dir = f_switches[not device.switch]
-            size = switch_dir.get_size()
-            s_pos = pos - Vector2(size[0], size[1]) / 2
-            surface.blit(switch_dir, (s_pos.x, s_pos.y))
+
+        if device.switch is None:
+            continue
+
+        if device.total_outputs > 0:
+            switch_dir = switches[not device.switch]
+        else:
+            switch_dir = f_switches[not device.switch]
+        size = switch_dir.get_size()
+        s_pos = pos - Vector2(size[0], size[1]) / 2
+        surface.blit(switch_dir, (s_pos.x, s_pos.y))
+
         if not device.switch:
             continue
-        if type(device).__name__ in wave_dict:
-            wave = wave_dict[type(device).__name__]
+
+        if type(device) in wave_dict:
+            wave = wave_dict[type(device)]
             sprite_num = int((device.anim_time * anim_fps) % len(wave))
             size = wave[sprite_num].get_size()
             pos -= Vector2(size[0], size[1]) / 2
@@ -275,13 +308,17 @@ def draw(window, objects, cables, focus, debug, menu, seq=None, beat=None, cabli
     surface.blit(plus, (1200 - num - 16 - 100, 14))
     surface.blit(logo, (24, 8))
 
+    if draw_mini:
+        minimap = draw_minimap()
+        surface.blit(minimap, (0, 0))
+
     surface.blit(controls, (1200 - 80, 0))
 
     beatbox = draw_bb(beat if beat else seq)
     surface.blit(beatbox, (0, 0))
 
     if debug:
-        for obj in objects:
+        for obj in devices:
             tl = world_to_camera(obj.position + obj.offset - obj.size / 2)
             pygame.draw.rect(surface, [0, 255, 0], [tl.x, tl.y, obj.size.x * ppu, obj.size.y * ppu], 1)
         mouse_pos = font.render(str(mx) + ", " + str(my), False, (255, 255, 255))

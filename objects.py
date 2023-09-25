@@ -1,37 +1,82 @@
-import tkinter
+import scipy.signal
 
-from MathBasic import *
-from ui import *
-import colorsys
-from random import randint
-import numpy as np
-import tkinter.filedialog as file
-import soundfile as sf
-import librosa
-from screen import Sprite
-import os
-import sounddevice as sd
-import time as time_package
-import threading
+from base import *
 
-sample_rate = 44100
-
-buffer_size = 16384
+process_lag_flag = 0
 process_flag = threading.Event()
 generator_flag = threading.Event()
 current_time = 0
 
-process_time = buffer_size / sample_rate
+stream = sd.OutputStream(sample_rate, channels=1)
+stream.start()
 
-sprite_paths = os.listdir("Resources/Devices/")
-sprite_paths = [os.path.join("Resources/Devices/", path) for path in sprite_paths]
+
+def generate_thread():
+    global current_time
+    global process_lag_flag
+
+    while not generator_flag.is_set():
+        before_process = time_package.time()
+        for device in Device.all_objects:
+            if type(device) not in [Sine, Square, Triangle, Microphone, Sample, Drumkit]:
+                continue
+            device.push(current_time)
+        total_process = time_package.time() - before_process
+        forfeit = (process_time - total_process) - 0.01
+        if forfeit > 0:
+            time_package.sleep(forfeit)
+        elif forfeit < -0.1:
+            process_lag_flag = 1
+        current_time += buffer_size
+
+
+def process_thread():
+    generator_thread = threading.Thread(target=generate_thread, args=())
+    generator_thread.setDaemon(True)
+    generator_thread.start()
+
+    while not process_flag.is_set():
+        time_package.sleep(0.01)
+        for speaker in Device.all_objects:
+            if type(speaker) != Speaker:
+                continue
+            if not speaker.queue:
+                continue
+            if not speaker.switch:
+                speaker.queue.pop(0)
+                speaker.timestamp.pop(0)
+                continue
+            if stream.active:
+                stream.write(speaker.queue.pop(0) * speaker.ui[0].value)
+
+    generator_flag.set()
+    process_flag.clear()
+
+    generator_thread.join()
+    generator_flag.clear()
+    return current_time
+
+
+def reset_process():
+    process_flag.set()
+    if hasattr(Object, "process"):
+        Object.process.join()
+
+
+def set_process():
+    process_flag.clear()
+    Object.process = threading.Thread(target=process_thread, args=())
+    Object.process.setDaemon(True)
+    Object.process.start()
+
+
+def update_process():
+    reset_process()
+    set_process()
+
 
 sequence_edit = None
 beatbox_edit = None
-
-state_flag = False
-
-process_lag_flag = 0
 
 
 def set_sequence_edit(device):
@@ -44,121 +89,20 @@ def set_beatbox_edit(device):
     beatbox_edit = device
 
 
-def generate_thread(generators):
-    global current_time
-    global process_lag_flag
-
-    while not generator_flag.is_set():
-        before_process = time_package.time()
-        for gen in generators:
-            gen.push(current_time)
-        total_process = time_package.time() - before_process
-        forfeit = (process_time - total_process) / 2
-        if process_time > total_process:
-            time_package.sleep(forfeit)
-        else:
-            process_lag_flag = 1
-        current_time += buffer_size
-
-
-def process_thread(devices):
-    generators = []
-    speakers = []
-    beatboxes = []
-
-    for device in devices:
-        if hasattr(device, "displace"):
-            device.displace = 0
-        if type(device) in [Sine, Square, Triangle, Sample]:
-            generators.append(device)
-        elif type(device) == Speaker:
-            speakers.append(device)
-        elif type(device) == Beatbox:
-            beatboxes.append(device)
-
-    for speaker in speakers:
-        speaker.queue = []
-
-    for beatbox in beatboxes:
-        if hasattr(beatbox, "_time_signature"):
-            beatbox.time_signature = beatbox.time_signature
-
-    generator_thread = threading.Thread(target=generate_thread, args=(generators,))
-    generator_thread.setDaemon(True)
-    generator_thread.start()
-
-    while not process_flag.is_set() and devices:
-        time_package.sleep(0.01)
-        for speaker in speakers:
-            if speaker.queue:
-                if speaker.switch:
-                    if speaker.stream.active:
-                        speaker.stream.write(speaker.queue.pop(0))
-
-    generator_flag.set()
-    process_flag.clear()
-
-    generator_thread.join()
-    generator_flag.clear()
-    return current_time
-
-
-def flag_push(self, time):
-    self.check_io()
-    self.output_data = self._push(time)
-    for f in range(len(self.flags)):
-        if self.flags[f] != time:
-            self.flags[f] = time
-            break
-    sync = True
-    value = self.flags[0]
-    for f in range(len(self.flags)):
-        clear = self.flags[f] == value or self.flags[f] == 0
-        sync = sync and clear
-    if sync:
-        for output in self.outputs:
-            output.push(time)
-
-
-class Object:
-    all_objects = []
-
-    def __init__(self):
-        if not hasattr(self, "size"):
-            self.size = Vector2(0.8, 1)
-        if not hasattr(self, "position"):
-            self.position = Vector2(0, 0)
-        if not hasattr(self, "velocity"):
-            self.velocity = Vector2(0, 0)
-        if not hasattr(self, "offset"):
-            self.offset = Vector2(0, 0)
-
-        Object.all_objects.append(self)
-
-        if not state_flag:
-            update_process()
-
-
-def reset_process():
-    process_flag.set()
-    if hasattr(Object, "process"):
-        Object.process.join()
-
-
-def set_process():
-    process_flag.clear()
-    Object.process = threading.Thread(target=process_thread, args=(Object.all_objects,))
-    Object.process.setDaemon(True)
-    Object.process.start()
-
-
-def update_process():
+def enter_menu(ui, title):
     reset_process()
+    v = full_screen_ui(ui, title)
     set_process()
+    return v
+
+
+sprite = None
 
 
 class Device(Object):
     def __init__(self, inputs, outputs, size=None, offset=None):
+        global sprite
+
         self.inputs = []
         self.outputs = []
         self.size = size if size is not None else Vector2(1.6, 2)
@@ -178,7 +122,7 @@ class Device(Object):
         if not hasattr(self, "_switch"):
             self._switch = None
 
-        self.sprite = Sprite(sprite_paths[spriteIndex.index(type(self))])
+        self.sprite = sprite(sprite_paths[spriteIndex.index(type(self))])
 
         super().__init__()
 
@@ -234,9 +178,8 @@ class Speaker(Device):
     def __init__(self, position):
         self.position = position
         self.switch = True
-        self.stream = sd.OutputStream(sample_rate, channels=1)
-        self.stream.start()
         self.queue = []
+        self.ui = [NumberEdit("Volume", 1)]
 
         super().__init__(1, 0)
 
@@ -249,19 +192,85 @@ class Speaker(Device):
             self.queue.append(data.astype(np.float32))
 
 
+class Microphone(Device):
+    def __init__(self, position):
+        self.position = position
+        super().__init__(0, 1)
+        self.device_name = ""
+        self.find_device()
+        self.stream = sd.InputStream(sample_rate, dtype="float32", device=self.device_name,
+                                     channels=1, blocksize=buffer_size, callback=self.callback)
+        self.stream.start()
+        self.flag = False
+        self.switch = True
+
+    def find_device(self):
+        devices = {}
+        for d in sounddevice.query_devices():
+            if d['max_input_channels'] >= 1 and d['default_samplerate'] == sample_rate:
+                devices[d['name']] = d['index']
+        window = tk.Tk()
+        window.withdraw()
+        ui = [[Button(name, return_screen_ui, devices[name]) for name in devices]]
+        self.device_name = enter_menu(ui, "Select Input Device")
+
+    def callback(self, indata, frames, timet, status):
+        self.output_data = indata[:, 0]
+        self.flag = True
+
+    def push(self, time):
+        if self.switch and not self.flag:
+            while not self.flag:
+                time_package.sleep(0.01)
+            self.flag = False
+            for output in self.outputs:
+                output.push(time)
+
+
+class Recorder(Device):
+    def __init__(self, position):
+        self.position = position
+        super().__init__(1, 0)
+        self.ui = [Button("Save", self.save)]
+        self.recorded = {}
+        self.switch = False
+
+    def save(self):
+        reset_process()
+
+        data = np.zeros(0)
+        for key in self.recorded:
+            data = np.concatenate((data, self.recorded[key]))
+
+        ui = [[AudioEdit(data)]]
+        d = enter_menu(ui, "Select Export Section")
+        if d is None:
+            return
+        data = data[int(d.left):int(d.right)]
+
+        dialog = tk.Tk()
+        dialog.withdraw()
+        path = file.asksaveasfilename(title="Save Sound", filetypes=[("Audio Files", ".wav .ogg .mp3")])
+
+        if path == "":
+            return
+
+        sf.write(path, data, samplerate=sample_rate)
+
+        set_process()
+
+    def push(self, time):
+        if not self.switch:
+            self.recorded = {}
+        else:
+            for i in self.inputs:
+                self.recorded[time] = i.output_data
+
+
 class Bus(Device):
     def __init__(self, position):
         self.position = position
         super().__init__(4, 4)
-
-    def check_io(self):
-        if not hasattr(self, "io"):
-            self.io = []
-        if not hasattr(self, "flags"):
-            self.flags = [0, 0, 0, 0]
-        if self.inputs + self.outputs != self.io:
-            self.flags = [0, 0, 0, 0]
-        self.io = self.inputs + self.outputs
 
     def push(self, time):
         flag_push(self, time)
@@ -269,49 +278,11 @@ class Bus(Device):
     def _push(self, time):
         data = np.zeros(buffer_size)
         for i in self.inputs:
-            data += i.output_data
+            data += i.output_data / len(self.inputs)
         x = np.max(np.abs(data))
         if x > 1:
             data = data / x
         return data
-
-
-class Splitter(Device):
-    def __init__(self, position):
-        self.position = position
-
-        super().__init__(1, 2, Vector2(1.6, 1.125), Vector2(0, 0.625 - 3 / 16))
-
-    def _push(self, time):
-        data = np.zeros(buffer_size)
-        for i in self.inputs:
-            data = i.output_data
-        return data
-
-
-class Mixer(Device):
-    def __init__(self, position):
-        self.position = position
-        self.flag = 0
-
-        super().__init__(2, 1, Vector2(1.6, 1.125), Vector2(0, 0.625 - 3 / 16))
-
-    def push(self, time):
-        self.output_data = self._push(time)
-        if len(self.inputs) <= self.flag:
-            self.flag = 0
-            for output in self.outputs:
-                output.push(time)
-        self.flag += 1
-
-    def _push(self, time):
-        m = 0
-        data = np.zeros(buffer_size)
-        for i in self.inputs:
-            if i.output_data != []:
-                m += 1
-                data += i.output_data
-        return data / m
 
 
 class Amp(Device):
@@ -333,31 +304,15 @@ class Pitch(Device):
     def __init__(self, position):
         self.position = position
 
-        self.ui = [NumberEdit("Semitones", 12)]
+        self.ui = [NumberEdit("Semitones", 4)]
 
         super().__init__(1, 1, Vector2(1.6, 0.75), Vector2(0, 0.625))
 
     def _push(self, time):
         data = np.zeros(buffer_size)
-        s = 2 ** (self.ui[0].value / 12)
+        s = self.ui[0].value
         for i in self.inputs:
-            data = librosa.effects.pitch_shift(i.output_data, sr=sample_rate, n_steps=s)
-        return data
-
-
-class Reverb(Device):
-    def __init__(self, position):
-        self.position = position
-        super().__init__(1, 1, Vector2(1.6, 0.75), Vector2(0, 0.625))
-        self.previous_data = []
-        self.ui = []
-
-    def _push(self, time):
-        data = np.zeros(buffer_size)
-        for i in self.inputs:
-            self.previous_data = np.concatenate((self.previous_data, i.output_data))
-            data += i.output_data
-
+            data = pitch_shift(i.output_data, s)
         return data
 
 
@@ -366,8 +321,8 @@ class Echo(Device):
         self.position = position
         super().__init__(1, 1, Vector2(1.6, 0.75), Vector2(0, 0.625))
         self.previous_data = np.zeros(buffer_size)
-        self.ui = [NumberEdit("Amount", 2), NumberEdit("Decay", 0.8),
-                   NumberEdit("Spacing", 0.1), NumberEdit("Strength", 0.2)]
+        self.ui = [NumberEdit("Echoes", 4), NumberEdit("Decay", 0.6),
+                   NumberEdit("Depth", 0.2), NumberEdit("Strength", 0.4)]
         self.c = 0
 
     def _push(self, time):
@@ -395,7 +350,7 @@ class Tremolo(Device):
     def __init__(self, position):
         self.position = position
         super().__init__(1, 1, Vector2(1.6, 0.75), Vector2(0, 0.625))
-        self.ui = [NumberEdit("Rate", 4), NumberEdit("Depth", 0.2)]
+        self.ui = [NumberEdit("Rate", 4), NumberEdit("Strength", 0.2)]
 
     def _push(self, time):
         data = np.zeros(buffer_size)
@@ -406,24 +361,94 @@ class Tremolo(Device):
         return data
 
 
-class Vibrato(Device):
+class Chorus(Device):
     def __init__(self, position):
         self.position = position
         super().__init__(1, 1, Vector2(1.6, 0.75), Vector2(0, 0.625))
-        self.ui = [NumberEdit("Rate", 4), NumberEdit("Depth", 0.1), NumberEdit("Semitones", 1)]
+        self.ui = [NumberEdit("Voices", 2), NumberEdit("Depth", 0.2),
+                   NumberEdit("Semitones", 0.2), NumberEdit("Strength", 0.4)]
+        self.previous_data = np.zeros(buffer_size)
+        self.c = 0
+
+    def _push(self, time):
+        data = np.zeros([])
+        if time - self.c >= buffer_size * 2:
+            self.previous_data = np.zeros(buffer_size)
+            self.c = time
+        for i in self.inputs:
+            data = i.output_data
+            self.previous_data = np.concatenate((self.previous_data, data))
+
+            voices, depth, semitones, strength = [u.value for u in self.ui]
+            voices = int(voices)
+            depth = int(depth * sample_rate)
+            semitones = 2 ** (semitones / 12)
+
+            chorus = np.zeros(buffer_size)
+            for v in range(voices):
+                direction = (v % 2 == 0) * 2 - 1
+                start = len(self.previous_data) - ((v + 1) * depth) - buffer_size
+                end = start + buffer_size
+                start = max(0, start)
+                end = max(0, end)
+                sample = self.previous_data[start:end]
+
+                voice = pitch_shift(sample, direction * semitones * ((v // 2) + 1))
+
+                chorus[:end - start] += voice / voices
+
+            data = (1 - strength) * data + strength * chorus
+            self.c = time + buffer_size
+        return data
+
+
+class Fuzz(Device):
+    def __init__(self, position):
+        self.position = position
+        super().__init__(1, 1, Vector2(1.6, 0.75), Vector2(0, 0.625))
+        self.ui = [NumberEdit("Smooth", 0.5), NumberEdit("Strength", 0.1)]
 
     def _push(self, time):
         data = np.zeros(buffer_size)
-        s = 2 ** (self.ui[0].value / 12)
         for i in self.inputs:
-            data = i.output_data
-            samples = np.linspace(time / sample_rate, (time + buffer_size) / sample_rate, buffer_size)
-            m_lower = (1 + np.sin(2 * np.pi * self.ui[0].value * samples)) / 2
-            m_upper = 1 - m_lower
-            lower = librosa.effects.pitch_shift(i.output_data, sr=sample_rate, n_steps=-s)
-            upper = librosa.effects.pitch_shift(i.output_data, sr=sample_rate, n_steps=-s)
-            vibrato = m_lower * lower + m_upper * upper
-            data = vibrato
+            smooth, strength = [u.value for u in self.ui]
+            d = i.output_data
+            fuzz = np.random.normal(0, 1, buffer_size)
+            smoothed = scipy.signal.savgol_filter(fuzz, 21, 3)
+            data = (1 - strength) * d + strength * ((1 - smooth) * fuzz + smooth * smoothed)
+        return data
+
+
+class Overdrive(Device):
+    def __init__(self, position):
+        self.position = position
+        super().__init__(1, 1, Vector2(1.6, 0.75), Vector2(0, 0.625))
+        self.ui = [NumberEdit("Strength", 1)]
+
+    def _push(self, time):
+        data = np.zeros(buffer_size)
+        for i in self.inputs:
+            strength = min(1, max(0, self.ui[0].value))
+            d = np.clip(i.output_data, -0.01, 0.01) * 100
+            data = (1 - strength) * i.output_data + strength * d
+        return data
+
+
+class Bitcrusher(Device):
+    def __init__(self, position):
+        self.position = position
+        super().__init__(1, 1, Vector2(1.6, 0.75), Vector2(0, 0.625))
+        self.ui = [NumberEdit("Bits", 8)]
+
+    def _push(self, time):
+        data = np.zeros(buffer_size)
+        for i in self.inputs:
+            depth = 1 / (2 ** (int(self.ui[0].value) - 1))
+            d = i.output_data
+            x = np.max(np.abs(d))
+            if x > 1:
+                d = d / x
+            data = np.round(d / depth) * depth
         return data
 
 
@@ -460,28 +485,24 @@ class Alternator(Device):
     def __init__(self, position):
         self.position = position
         super().__init__(3, 1, Vector2(1.6, 1.5), Vector2(0, 0.25))
-        self.check_io()
-
-    def check_io(self):
-        if not hasattr(self, "io"):
-            self.io = []
-        if not hasattr(self, "flags"):
-            self.flags = [0, 0, 0]
-        if self.inputs + self.outputs != self.io:
-            self.flags = [0, 0, 0]
-        self.io = self.inputs + self.outputs
+        self.signal = np.zeros(buffer_size)
+        check_io(self)
 
     def push(self, time):
         flag_push(self, time)
 
     def _push(self, time):
+        self.signal = np.zeros(buffer_size)
         if len(self.inputs) <= 1:
             return np.zeros(buffer_size)
-        filter_high = self.inputs[1].output_data < 0
+
+        self.signal = self.inputs[1].output_data
+        filter_high = self.signal < 0
         filter_low = 1 - filter_high
         i1 = self.inputs[0].output_data * filter_high
         if len(self.inputs) == 2:
             return i1
+
         i2 = self.inputs[2].output_data * filter_low
         if len(self.inputs) == 3:
             return i1 + i2
@@ -496,29 +517,29 @@ class Beatbox(Device):
                    NumberEdit("Sustain", 0.2), NumberEdit("Release", 0.2),
                    NumberEdit("BPM", 120), Button("Edit...", set_beatbox_edit, self)]
         self.prev_bpm = 120
-        self.time_signature = 4
+        self.length = 4
 
-        self.check_io()
+        check_io(self)
 
         self.switch = True
 
     @property
-    def time_signature(self):
-        return self._time_signature
+    def length(self):
+        return self._length
 
-    @time_signature.setter
-    def time_signature(self, t):
-        bpm = max(0.001, self.ui[4].value)
+    @length.setter
+    def length(self, t):
+        bpm = max(2, self.ui[4].value)
         self.note_duration = int(sample_rate * (60 / bpm))
         self.total_notes = t
         self.note_time = self.total_notes * self.note_duration
         self.masks = [np.array([0 for i in range(self.note_time)], dtype=float) for j in range(4)]
         self.envelope = np.array([1 for i in range(self.note_duration)])
         self.gen_envelope()
-        if getattr(self, "_time_signature", None) != t:
+        if getattr(self, "_length", None) != t:
             self.notation = [[0 for i in range(t)] for j in range(4)]
         self.notation_update()
-        self._time_signature = t
+        self._length = t
 
     def notation_update(self):
         for y in range(len(self.notation)):
@@ -568,21 +589,12 @@ class Beatbox(Device):
             self.masks[y][start:start + len(self.envelope)] -= self.envelope
         self.masks[y] = np.clip(self.masks[y], 0, 1)
 
-    def check_io(self):
-        if not hasattr(self, "io"):
-            self.io = []
-        if not hasattr(self, "flags"):
-            self.flags = [0, 0, 0, 0]
-        if self.inputs + self.outputs != self.io:
-            self.flags = [0, 0, 0, 0]
-        self.io = self.inputs + self.outputs
-
     def push(self, time):
         if not self.switch:
             self.output_data = np.zeros(buffer_size)
             return
         if self.prev_bpm != self.ui[4].value:
-            self.time_signature = self._time_signature
+            self.length = self._length
             self.prev_bpm = self.ui[4].value
 
         flag_push(self, time)
@@ -599,9 +611,91 @@ class Beatbox(Device):
             else:
                 mask = np.concatenate((self.masks[y][left:self.note_time], self.masks[y][0:right]))
                 d = d * mask
-            data += d
+            data += d / len(self.inputs)
             j += 1
         return data
+
+
+class Drumkit(Device):
+    def __init__(self, position):
+        self.position = position
+        super().__init__(0, 1, Vector2(3.2, 2))
+        self.ui = [NumberEdit("BPM", 120), Button("Edit...", set_beatbox_edit, self)]
+        self.prev_bpm = 120
+        self.switch = True
+
+        self.length = 4
+
+        # Hi-hat, Kick, Percussion, Snare
+        paths = os.listdir("Resources/Drums")
+        samples = [sf.read(os.path.join("Resources/Drums", paths[i]))[0] for i in range(4)]
+        self.samples = [sample[:, 0] for sample in samples]
+
+    @property
+    def length(self):
+        return self._length
+
+    @length.setter
+    def length(self, value):
+        bpm = max(2, self.ui[0].value)
+        self.note_duration = int(sample_rate * (60 / bpm))
+        self.total_notes = value
+        self.note_time = self.total_notes * self.note_duration
+        self.data = np.zeros(self.note_time)
+        if getattr(self, "_length", None) != value:
+            self.notation = [[0 for i in range(value)] for j in range(4)]
+        self.notation_update()
+        self._length = value
+
+    def notation_update(self):
+        for y in range(len(self.notation)):
+            for x in range(len(self.notation[0])):
+                if self.notation[y][x] != 0:
+                    self.add_note(x, y, force=True)
+
+    def paste(self, left, right, sample):
+        if right < left:
+            self.data[left:] += sample[right:]
+            self.data[:right] += sample[:right]
+        else:
+            self.data[left:right] += sample
+
+    def add_note(self, x, y, force=False):
+        if self.notation[y][x] and not force:
+            return
+        sample = self.samples[y]
+        self.notation[y][x] = 1
+        left, right = (x * self.note_duration) % self.note_time, \
+                      (x * self.note_duration + len(sample)) % self.note_time
+        self.paste(left, right, sample)
+
+    def remove_note(self, x, y, force=False):
+        if not self.notation[y][x] and not force:
+            return
+        sample = self.samples[y]
+        self.notation[y][x] = 0
+        left, right = (x * self.note_duration) % self.note_time, \
+                      (x * self.note_duration + len(sample)) % self.note_time
+        self.paste(left, right, -sample)
+
+    def push(self, time):
+        if self.prev_bpm != self.ui[0].value:
+            self.length = self._length
+            self.prev_bpm = self.ui[0].value
+
+        data = np.zeros(buffer_size) if not self.switch else self._push(time)
+        self.output_data = data
+
+        for output in self.outputs:
+            output.push(time)
+
+    def _push(self, time):
+        left, right = time % self.note_time, (time + buffer_size) % self.note_time
+        if right < left:
+            l, r = self.data[left:], self.data[:right]
+            return np.concatenate((l, r))
+        else:
+            return self.data[left:right]
 
 
 class Sine(Device):
@@ -663,8 +757,10 @@ class Sample(Device):
         self.path = path
         self.data = []
 
-        self.ui = [NumberEdit("Length", 0.2), Button("Select...", self.get_data)]
+        self.ui = [Button("Edit...", self.edit), Button("Select...", self.get_data)]
         self.get_data(path)
+
+        self.left, self.right = 0, len(self.data)
 
         super().__init__(0, 1, Vector2(1.6, 25/16), Vector2(0, 3.5/16))
 
@@ -676,22 +772,20 @@ class Sample(Device):
         if len(self.data) < 1:
             Device.remove(self)
             return np.zeros(buffer_size)
-        d = min(len(self.data), int(self.ui[0].value * sample_rate))
-        if self.ui[0].value == 0:
-            d = len(self.data)
-        left, right = time % d, (time + buffer_size) % d
-        if left < right:
-            loop = self.data[left:right]
-        else:
-            loop = np.concatenate((self.data[left:d], self.data[0:right]))
-        if len(loop) < buffer_size:
-            loop = np.pad(loop, (0, buffer_size - len(loop)), 'wrap')
-        return loop
+        loop = self.data[self.left:self.right]
+        data = np.take(loop, range(time, time + buffer_size), mode="wrap")
+        return data
+
+    def edit(self):
+        ui = [[AudioEdit(self.data)]]
+        d = enter_menu(ui, "Select Sample Range")
+        if d is not None:
+            self.left, self.right = int(d.left), int(d.right)
 
     def get_data(self, path=""):
         reset_process()
         if path == "":
-            dialog = tkinter.Tk()
+            dialog = tk.Tk()
             dialog.withdraw()
             self.path = file.askopenfilename(title="Open Sample", filetypes=[("Audio Files", ".wav .ogg .mp3")])
 
@@ -738,9 +832,6 @@ class Cable:
 
         Cable.all_cables.append(self)
 
-        if not state_flag:
-            update_process()
-
     def find_points(self):
         width = self.left.size.x / 1.6, self.right.size.x / 1.6
         self.left_point = Vector2(self.left.position.x + width[0] * 7 / 16, self.left.position.y + 9 / 16)
@@ -782,9 +873,9 @@ class Cable:
             cable.rp -= 1
         for cable in l:
             cable.lp -= 1
-        update_process()
 
 
-spriteIndex = [Speaker, Splitter, Mixer, Sine, Reverb, Echo, Sample, Amp,
-               Beatbox, Sequencer, Pitch, Tremolo, Vibrato, None, None, Bus,
-               Square, Triangle, Alternator]
+spriteIndex = [Speaker, None, None, Sine, None, Echo, Sample, Amp,
+               Beatbox, Sequencer, Pitch, Tremolo, None, Microphone, Recorder, Bus,
+               Square, Triangle, Alternator, Drumkit, Chorus, Fuzz, Overdrive, None,
+               Bitcrusher]
